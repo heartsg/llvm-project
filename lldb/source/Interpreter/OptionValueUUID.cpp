@@ -1,4 +1,4 @@
-//===-- OptionValueUUID.cpp ------------------------------------*- C++ -*-===//
+//===-- OptionValueUUID.cpp -----------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -80,10 +80,6 @@ void OptionValueUUID::AutoComplete(CommandInterpreter &interpreter,
     const UUID &module_uuid = module_sp->GetUUID();
     if (!module_uuid.IsValid())
       continue;
-    llvm::ArrayRef<uint8_t> module_bytes = module_uuid.GetBytes();
-    if (module_bytes.size() >= uuid_bytes.size() &&
-        module_bytes.take_front(uuid_bytes.size()).equals(uuid_bytes)) {
-      request.AddCompletion(module_uuid.GetAsString());
-    }
+    request.TryCompleteCurrentArg(module_uuid.GetAsString());
   }
 }

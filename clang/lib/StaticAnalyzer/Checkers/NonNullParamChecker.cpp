@@ -21,6 +21,7 @@
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
+#include "llvm/ADT/StringExtras.h"
 
 using namespace clang;
 using namespace ento;
@@ -35,11 +36,11 @@ public:
 
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
 
-  std::unique_ptr<BugReport>
+  std::unique_ptr<PathSensitiveBugReport>
   genReportNullAttrNonNull(const ExplodedNode *ErrorN,
                            const Expr *ArgE,
                            unsigned IdxOfArg) const;
-  std::unique_ptr<BugReport>
+  std::unique_ptr<PathSensitiveBugReport>
   genReportReferenceToNullPointer(const ExplodedNode *ErrorN,
                                   const Expr *ArgE) const;
 };
@@ -179,7 +180,7 @@ void NonNullParamChecker::checkPreCall(const CallEvent &Call,
   C.addTransition(state);
 }
 
-std::unique_ptr<BugReport>
+std::unique_ptr<PathSensitiveBugReport>
 NonNullParamChecker::genReportNullAttrNonNull(const ExplodedNode *ErrorNode,
                                               const Expr *ArgE,
                                               unsigned IdxOfArg) const {
@@ -204,7 +205,8 @@ NonNullParamChecker::genReportNullAttrNonNull(const ExplodedNode *ErrorNode,
   return R;
 }
 
-std::unique_ptr<BugReport> NonNullParamChecker::genReportReferenceToNullPointer(
+std::unique_ptr<PathSensitiveBugReport>
+NonNullParamChecker::genReportReferenceToNullPointer(
     const ExplodedNode *ErrorNode, const Expr *ArgE) const {
   if (!BTNullRefArg)
     BTNullRefArg.reset(new BuiltinBug(this, "Dereference of null pointer"));
@@ -225,6 +227,6 @@ void ento::registerNonNullParamChecker(CheckerManager &mgr) {
   mgr.registerChecker<NonNullParamChecker>();
 }
 
-bool ento::shouldRegisterNonNullParamChecker(const LangOptions &LO) {
+bool ento::shouldRegisterNonNullParamChecker(const CheckerManager &mgr) {
   return true;
 }

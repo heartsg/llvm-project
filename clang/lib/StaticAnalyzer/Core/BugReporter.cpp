@@ -51,6 +51,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Casting.h"
@@ -2566,7 +2567,8 @@ BugPathInfo *BugPathGetter::getNextBugPath() {
     // Create the equivalent node in the new graph with the same state
     // and location.
     ExplodedNode *NewN = GNew->createUncachedNode(
-        OrigN->getLocation(), OrigN->getState(), OrigN->isSink());
+        OrigN->getLocation(), OrigN->getState(),
+        OrigN->getID(), OrigN->isSink());
 
     // Link up the new node with the previous node.
     if (Succ)

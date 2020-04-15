@@ -43,27 +43,28 @@ CCState::CCState(CallingConv::ID CC, bool isVarArg, MachineFunction &mf,
 void CCState::HandleByVal(unsigned ValNo, MVT ValVT, MVT LocVT,
                           CCValAssign::LocInfo LocInfo, int MinSize,
                           int MinAlignment, ISD::ArgFlagsTy ArgFlags) {
-  llvm::Align MinAlign(MinAlignment);
-  llvm::Align Align(ArgFlags.getByValAlign());
+  Align MinAlign(MinAlignment);
+  Align Alignment = ArgFlags.getNonZeroByValAlign();
   unsigned Size  = ArgFlags.getByValSize();
   if (MinSize > (int)Size)
     Size = MinSize;
-  if (MinAlign > Align)
-    Align = MinAlign;
-  ensureMaxAlignment(Align);
-  MF.getSubtarget().getTargetLowering()->HandleByVal(this, Size, Align.value());
+  if (MinAlign > Alignment)
+    Alignment = MinAlign;
+  ensureMaxAlignment(Alignment);
+  MF.getSubtarget().getTargetLowering()->HandleByVal(this, Size,
+                                                     Alignment.value());
   Size = unsigned(alignTo(Size, MinAlign));
-  unsigned Offset = AllocateStack(Size, Align.value());
+  unsigned Offset = AllocateStack(Size, Alignment.value());
   addLoc(CCValAssign::getMem(ValNo, ValVT, Offset, LocVT, LocInfo));
 }
 
 /// Mark a register and all of its aliases as allocated.
-void CCState::MarkAllocated(unsigned Reg) {
+void CCState::MarkAllocated(MCPhysReg Reg) {
   for (MCRegAliasIterator AI(Reg, &TRI, true); AI.isValid(); ++AI)
-    UsedRegs[*AI/32] |= 1 << (*AI&31);
+    UsedRegs[*AI / 32] |= 1 << (*AI & 31);
 }
 
-bool CCState::IsShadowAllocatedReg(unsigned Reg) const {
+bool CCState::IsShadowAllocatedReg(MCRegister Reg) const {
   if (!isAllocated(Reg))
     return false;
 
@@ -198,7 +199,7 @@ static bool isValueTypeInRegForCC(CallingConv::ID CC, MVT VT) {
 void CCState::getRemainingRegParmsForType(SmallVectorImpl<MCPhysReg> &Regs,
                                           MVT VT, CCAssignFn Fn) {
   unsigned SavedStackOffset = StackOffset;
-  llvm::Align SavedMaxStackArgAlign = MaxStackArgAlign;
+  Align SavedMaxStackArgAlign = MaxStackArgAlign;
   unsigned NumLocs = Locs.size();
 
   // Set the 'inreg' flag if it is used for this calling convention.

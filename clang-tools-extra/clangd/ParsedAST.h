@@ -21,6 +21,7 @@
 #ifndef LLVM_CLANG_TOOLS_EXTRA_CLANGD_PARSEDAST_H
 #define LLVM_CLANG_TOOLS_EXTRA_CLANGD_PARSEDAST_H
 
+#include "CollectMacros.h"
 #include "Compiler.h"
 #include "Diagnostics.h"
 #include "Headers.h"
@@ -47,7 +48,7 @@ public:
   /// Attempts to run Clang and store parsed AST. If \p Preamble is non-null
   /// it is reused during parsing.
   static llvm::Optional<ParsedAST>
-  build(std::unique_ptr<clang::CompilerInvocation> CI,
+  build(llvm::StringRef Version, std::unique_ptr<clang::CompilerInvocation> CI,
         llvm::ArrayRef<Diag> CompilerInvocationDiags,
         std::shared_ptr<const PreambleData> Preamble,
         std::unique_ptr<llvm::MemoryBuffer> Buffer,
@@ -76,6 +77,10 @@ public:
     return getASTContext().getSourceManager();
   }
 
+  const LangOptions &getLangOpts() const {
+    return getASTContext().getLangOpts();
+  }
+
   /// This function returns top-level decls present in the main file of the AST.
   /// The result does not include the decls that come from the preamble.
   /// (These should be const, but RecursiveASTVisitor requires Decl*).
@@ -83,28 +88,32 @@ public:
 
   const std::vector<Diag> &getDiagnostics() const;
 
-  /// Returns the esitmated size of the AST and the accessory structures, in
+  /// Returns the estimated size of the AST and the accessory structures, in
   /// bytes. Does not include the size of the preamble.
   std::size_t getUsedBytes() const;
   const IncludeStructure &getIncludeStructure() const;
   const CanonicalIncludes &getCanonicalIncludes() const;
 
-  /// Gets all macro locations (definition, expansions) present in the main
-  /// file.
-  /// NOTE: macros inside the preamble are not included.
-  llvm::ArrayRef<SourceLocation> getMacros() const;
+  /// Gets all macro references (definition, expansions) present in the main
+  /// file, including those in the preamble region.
+  const MainFileMacros &getMacros() const;
   /// Tokens recorded while parsing the main file.
   /// (!) does not have tokens from the preamble.
   const syntax::TokenBuffer &getTokens() const { return Tokens; }
 
+  /// Returns the version of the ParseInputs this AST was built from.
+  llvm::StringRef version() const { return Version; }
+
 private:
-  ParsedAST(std::shared_ptr<const PreambleData> Preamble,
+  ParsedAST(llvm::StringRef Version,
+            std::shared_ptr<const PreambleData> Preamble,
             std::unique_ptr<CompilerInstance> Clang,
             std::unique_ptr<FrontendAction> Action, syntax::TokenBuffer Tokens,
-            std::vector<SourceLocation> MainFileMacroExpLocs,
-            std::vector<Decl *> LocalTopLevelDecls, std::vector<Diag> Diags,
-            IncludeStructure Includes, CanonicalIncludes CanonIncludes);
+            MainFileMacros Macros, std::vector<Decl *> LocalTopLevelDecls,
+            std::vector<Diag> Diags, IncludeStructure Includes,
+            CanonicalIncludes CanonIncludes);
 
+  std::string Version;
   // In-memory preambles must outlive the AST, it is important that this member
   // goes before Clang and Action.
   std::shared_ptr<const PreambleData> Preamble;
@@ -121,10 +130,8 @@ private:
   ///   - Does not have spelled or expanded tokens for files from preamble.
   syntax::TokenBuffer Tokens;
 
-  /// The start locations of all macro definitions/expansions spelled **after**
-  /// preamble.
-  /// Does not include locations from inside other macro expansions.
-  std::vector<SourceLocation> MacroIdentifierLocs;
+  /// All macro definitions and expansions in the main file.
+  MainFileMacros Macros;
   // Data, stored after parsing.
   std::vector<Diag> Diags;
   // Top-level decls inside the current file. Not that this does not include

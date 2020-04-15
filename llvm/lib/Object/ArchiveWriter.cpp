@@ -12,6 +12,7 @@
 
 #include "llvm/Object/ArchiveWriter.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/BinaryFormat/Magic.h"
 #include "llvm/IR/LLVMContext.h"
@@ -177,7 +178,7 @@ printBSDMemberHeader(raw_ostream &Out, uint64_t Pos, StringRef Name,
                      unsigned UID, unsigned GID, unsigned Perms, uint64_t Size) {
   uint64_t PosAfterHeader = Pos + 60 + Name.size();
   // Pad so that even 64 bit object files are aligned.
-  unsigned Pad = offsetToAlignment(PosAfterHeader, llvm::Align(8));
+  unsigned Pad = offsetToAlignment(PosAfterHeader, Align(8));
   unsigned NameWithPadding = Name.size() + Pad;
   printWithSpacePadding(Out, Twine("#1/") + Twine(NameWithPadding), 16);
   printRestOfMemberHeader(Out, ModTime, UID, GID, Perms,
@@ -244,7 +245,7 @@ struct MemberData {
 
 static MemberData computeStringTable(StringRef Names) {
   unsigned Size = Names.size();
-  unsigned Pad = offsetToAlignment(Size, llvm::Align(2));
+  unsigned Pad = offsetToAlignment(Size, Align(2));
   std::string Header;
   raw_string_ostream Out(Header);
   printWithSpacePadding(Out, "//", 48);
@@ -308,7 +309,7 @@ static void writeSymbolTable(raw_ostream &Out, object::Archive::Kind Kind,
   // least 4-byte aligned for 32-bit content.  Opt for the larger encoding
   // uniformly.
   // We do this for all bsd formats because it simplifies aligning members.
-  const llvm::Align Alignment(isBSDLike(Kind) ? 8 : 2);
+  const Align Alignment(isBSDLike(Kind) ? 8 : 2);
   unsigned Pad = offsetToAlignment(Size, Alignment);
   Size += Pad;
 
@@ -465,9 +466,9 @@ computeMemberData(raw_ostream &StringTable, raw_ostream &SymNames,
     // uniformly.  This matches the behaviour with cctools and ensures that ld64
     // is happy with archives that we generate.
     unsigned MemberPadding =
-        isDarwin(Kind) ? offsetToAlignment(Data.size(), llvm::Align(8)) : 0;
+        isDarwin(Kind) ? offsetToAlignment(Data.size(), Align(8)) : 0;
     unsigned TailPadding =
-        offsetToAlignment(Data.size() + MemberPadding, llvm::Align(2));
+        offsetToAlignment(Data.size() + MemberPadding, Align(2));
     StringRef Padding = StringRef(PaddingData, MemberPadding + TailPadding);
 
     sys::TimePoint<std::chrono::seconds> ModTime;
@@ -545,7 +546,7 @@ Expected<std::string> computeArchiveRelativePath(StringRef From, StringRef To) {
   for (auto ToE = sys::path::end(PathTo); ToI != ToE; ++ToI)
     sys::path::append(Relative, sys::path::Style::posix, *ToI);
 
-  return Relative.str();
+  return std::string(Relative.str());
 }
 
 Error writeArchive(StringRef ArcName, ArrayRef<NewArchiveMember> NewMembers,

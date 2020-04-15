@@ -7,10 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "Annotations.h"
+#include "ClangdServer.h"
 #include "Matchers.h"
 #include "Protocol.h"
 #include "SemanticSelection.h"
 #include "SourceCode.h"
+#include "SyncAPI.h"
+#include "TestFS.h"
 #include "TestTU.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
@@ -21,7 +24,16 @@
 namespace clang {
 namespace clangd {
 namespace {
+using ::testing::ElementsAre;
 using ::testing::ElementsAreArray;
+
+// front() is SR.range, back() is outermost range.
+std::vector<Range> gatherRanges(const SelectionRange &SR) {
+  std::vector<Range> Ranges;
+  for (const SelectionRange *S = &SR; S; S = S->parent.get())
+    Ranges.push_back(S->range);
+  return Ranges;
+}
 
 TEST(SemanticSelection, All) {
   const char *Tests[] = {
@@ -75,21 +87,18 @@ TEST(SemanticSelection, All) {
         }]]]]
        )cpp",
       // Empty file.
-      "^",
+      "[[^]]",
       // FIXME: We should get the whole DeclStmt as a range.
       R"cpp( // Single statement in TU.
         [[int v = [[1^00]]]];
       )cpp",
-      // FIXME: No node found associated to the position.
       R"cpp( // Cursor at end of VarDecl.
-        void func() {
-          int v = 100 + 100^;
-        }
+        [[int v = [[100]]^]];
       )cpp",
       // FIXME: No node found associated to the position.
       R"cpp( // Cursor in between spaces.
         void func() {
-          int v = 100 + ^  100;
+          int v = 100 + [[^]]  100;
         }
       )cpp",
       // Structs.
@@ -133,10 +142,44 @@ TEST(SemanticSelection, All) {
   for (const char *Test : Tests) {
     auto T = Annotations(Test);
     auto AST = TestTU::withCode(T.code()).build();
-    EXPECT_THAT(llvm::cantFail(getSemanticRanges(AST, T.point())),
+    EXPECT_THAT(gatherRanges(llvm::cantFail(getSemanticRanges(AST, T.point()))),
                 ElementsAreArray(T.ranges()))
         << Test;
   }
+}
+
+TEST(SemanticSelection, RunViaClangdServer) {
+  MockFSProvider FS;
+  MockCompilationDatabase CDB;
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
+
+  auto FooH = testPath("foo.h");
+  FS.Files[FooH] = R"cpp(
+    int foo(int x);
+    #define HASH(x) ((x) % 10)
+  )cpp";
+
+  auto FooCpp = testPath("Foo.cpp");
+  const char *SourceContents = R"cpp(
+  #include "foo.h"
+  [[void bar(int& inp) [[{
+    // inp = HASH(foo(inp));
+    [[inp = [[HASH([[foo([[in^p]])]])]]]];
+  }]]]]
+  $empty[[^]]
+  )cpp";
+  Annotations SourceAnnotations(SourceContents);
+  FS.Files[FooCpp] = std::string(SourceAnnotations.code());
+  Server.addDocument(FooCpp, SourceAnnotations.code());
+
+  auto Ranges = runSemanticRanges(Server, FooCpp, SourceAnnotations.points());
+  ASSERT_TRUE(bool(Ranges))
+      << "getSemanticRange returned an error: " << Ranges.takeError();
+  ASSERT_EQ(Ranges->size(), SourceAnnotations.points().size());
+  EXPECT_THAT(gatherRanges(Ranges->front()),
+              ElementsAreArray(SourceAnnotations.ranges()));
+  EXPECT_THAT(gatherRanges(Ranges->back()),
+              ElementsAre(SourceAnnotations.range("empty")));
 }
 } // namespace
 } // namespace clangd

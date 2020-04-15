@@ -74,11 +74,11 @@ protected:
 
 public:
   AttributeCommonInfo(SourceRange AttrRange)
-      : AttrRange(AttrRange), AttrKind(0), SyntaxUsed(0),
+      : AttrRange(AttrRange), ScopeLoc(), AttrKind(0), SyntaxUsed(0),
         SpellingIndex(SpellingNotCalculated) {}
 
   AttributeCommonInfo(SourceLocation AttrLoc)
-      : AttrRange(AttrLoc), AttrKind(0), SyntaxUsed(0),
+      : AttrRange(AttrLoc), ScopeLoc(), AttrKind(0), SyntaxUsed(0),
         SpellingIndex(SpellingNotCalculated) {}
 
   AttributeCommonInfo(const IdentifierInfo *AttrName,
@@ -133,6 +133,11 @@ public:
   bool hasScope() const { return ScopeName; }
   const IdentifierInfo *getScopeName() const { return ScopeName; }
   SourceLocation getScopeLoc() const { return ScopeLoc; }
+
+  /// Gets the normalized full name, which consists of both scope and name and
+  /// with surrounding underscores removed as appropriate (e.g.
+  /// __gnu__::__attr__ will be normalized to gnu::attr).
+  std::string getNormalizedFullName() const;
 
   bool isDeclspecAttribute() const { return SyntaxUsed == AS_Declspec; }
   bool isMicrosoftAttribute() const { return SyntaxUsed == AS_Microsoft; }

@@ -1708,6 +1708,13 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
     EnterAnnotationToken(SourceRange(HashLoc, EndLoc),
                          tok::annot_module_include, Action.ModuleForHeader);
     break;
+  case ImportAction::Failure:
+    assert(TheModuleLoader.HadFatalFailure &&
+           "This should be an early exit only to a fatal error");
+    TheModuleLoader.HadFatalFailure = true;
+    IncludeTok.setKind(tok::eof);
+    CurLexer->cutOffLexing();
+    return;
   }
 }
 
@@ -1716,11 +1723,11 @@ Optional<FileEntryRef> Preprocessor::LookupHeaderIncludeOrImport(
     SourceLocation FilenameLoc, CharSourceRange FilenameRange,
     const Token &FilenameTok, bool &IsFrameworkFound, bool IsImportDecl,
     bool &IsMapped, const DirectoryLookup *LookupFrom,
-    const FileEntry *LookupFromFile, SmallString<128> &NormalizedPath,
+    const FileEntry *LookupFromFile, StringRef LookupFilename,
     SmallVectorImpl<char> &RelativePath, SmallVectorImpl<char> &SearchPath,
     ModuleMap::KnownHeader &SuggestedModule, bool isAngled) {
   Optional<FileEntryRef> File = LookupFile(
-      FilenameLoc, LangOpts.MSVCCompat ? NormalizedPath.c_str() : Filename,
+      FilenameLoc, LookupFilename,
       isAngled, LookupFrom, LookupFromFile, CurDir,
       Callbacks ? &SearchPath : nullptr, Callbacks ? &RelativePath : nullptr,
       &SuggestedModule, &IsMapped, &IsFrameworkFound);
@@ -1739,7 +1746,7 @@ Optional<FileEntryRef> Preprocessor::LookupHeaderIncludeOrImport(
         // Try the lookup again, skipping the cache.
         Optional<FileEntryRef> File = LookupFile(
             FilenameLoc,
-            LangOpts.MSVCCompat ? NormalizedPath.c_str() : Filename, isAngled,
+            LookupFilename, isAngled,
             LookupFrom, LookupFromFile, CurDir, nullptr, nullptr,
             &SuggestedModule, &IsMapped, /*IsFrameworkFound=*/nullptr,
             /*SkipCache*/ true);
@@ -1757,7 +1764,7 @@ Optional<FileEntryRef> Preprocessor::LookupHeaderIncludeOrImport(
   // provide the user with a possible fixit.
   if (isAngled) {
     Optional<FileEntryRef> File = LookupFile(
-        FilenameLoc, LangOpts.MSVCCompat ? NormalizedPath.c_str() : Filename,
+        FilenameLoc, LookupFilename,
         false, LookupFrom, LookupFromFile, CurDir,
         Callbacks ? &SearchPath : nullptr, Callbacks ? &RelativePath : nullptr,
         &SuggestedModule, &IsMapped,
@@ -1785,20 +1792,23 @@ Optional<FileEntryRef> Preprocessor::LookupHeaderIncludeOrImport(
       return Filename;
     };
     StringRef TypoCorrectionName = CorrectTypoFilename(Filename);
-    SmallString<128> NormalizedTypoCorrectionPath;
-    if (LangOpts.MSVCCompat) {
-      NormalizedTypoCorrectionPath = TypoCorrectionName.str();
+
 #ifndef _WIN32
+    // Normalize slashes when compiling with -fms-extensions on non-Windows.
+    // This is unnecessary on Windows since the filesystem there handles
+    // backslashes.
+    SmallString<128> NormalizedTypoCorrectionPath;
+    if (LangOpts.MicrosoftExt) {
+      NormalizedTypoCorrectionPath = TypoCorrectionName;
       llvm::sys::path::native(NormalizedTypoCorrectionPath);
-#endif
+      TypoCorrectionName = NormalizedTypoCorrectionPath;
     }
+#endif
+
     Optional<FileEntryRef> File = LookupFile(
-        FilenameLoc,
-        LangOpts.MSVCCompat ? NormalizedTypoCorrectionPath.c_str()
-                            : TypoCorrectionName,
-        isAngled, LookupFrom, LookupFromFile, CurDir,
-        Callbacks ? &SearchPath : nullptr, Callbacks ? &RelativePath : nullptr,
-        &SuggestedModule, &IsMapped,
+        FilenameLoc, TypoCorrectionName, isAngled, LookupFrom, LookupFromFile,
+        CurDir, Callbacks ? &SearchPath : nullptr,
+        Callbacks ? &RelativePath : nullptr, &SuggestedModule, &IsMapped,
         /*IsFrameworkFound=*/nullptr);
     if (File) {
       auto Hint =
@@ -1906,18 +1916,23 @@ Preprocessor::ImportAction Preprocessor::HandleHeaderIncludeOrImport(
   // the path.
   ModuleMap::KnownHeader SuggestedModule;
   SourceLocation FilenameLoc = FilenameTok.getLocation();
-  SmallString<128> NormalizedPath;
-  if (LangOpts.MSVCCompat) {
-    NormalizedPath = Filename.str();
+  StringRef LookupFilename = Filename;
+
 #ifndef _WIN32
+  // Normalize slashes when compiling with -fms-extensions on non-Windows. This
+  // is unnecessary on Windows since the filesystem there handles backslashes.
+  SmallString<128> NormalizedPath;
+  if (LangOpts.MicrosoftExt) {
+    NormalizedPath = Filename.str();
     llvm::sys::path::native(NormalizedPath);
-#endif
+    LookupFilename = NormalizedPath;
   }
+#endif
 
   Optional<FileEntryRef> File = LookupHeaderIncludeOrImport(
       CurDir, Filename, FilenameLoc, FilenameRange, FilenameTok,
       IsFrameworkFound, IsImportDecl, IsMapped, LookupFrom, LookupFromFile,
-      NormalizedPath, RelativePath, SearchPath, SuggestedModule, isAngled);
+      LookupFilename, RelativePath, SearchPath, SuggestedModule, isAngled);
 
   if (usingPCHWithThroughHeader() && SkippingUntilPCHThroughHeader) {
     if (File && isPCHThroughHeader(&File->getFileEntry()))
@@ -2059,10 +2074,9 @@ Preprocessor::ImportAction Preprocessor::HandleHeaderIncludeOrImport(
     // Notify the callback object that we've seen an inclusion directive.
     // FIXME: Use a different callback for a pp-import?
     Callbacks->InclusionDirective(
-        HashLoc, IncludeTok,
-        LangOpts.MSVCCompat ? NormalizedPath.c_str() : Filename, isAngled,
-        FilenameRange, File ? &File->getFileEntry() : nullptr, SearchPath,
-        RelativePath, Action == Import ? SuggestedModule.getModule() : nullptr,
+        HashLoc, IncludeTok, LookupFilename, isAngled, FilenameRange,
+        File ? &File->getFileEntry() : nullptr, SearchPath, RelativePath,
+        Action == Import ? SuggestedModule.getModule() : nullptr,
         FileCharacter);
     if (Action == Skip && File)
       Callbacks->FileSkipped(*File, FilenameTok, FileCharacter);
@@ -2085,7 +2099,7 @@ Preprocessor::ImportAction Preprocessor::HandleHeaderIncludeOrImport(
       !IsMapped && !File->getFileEntry().tryGetRealPathName().empty();
 
   if (CheckIncludePathPortability) {
-    StringRef Name = LangOpts.MSVCCompat ? NormalizedPath.str() : Filename;
+    StringRef Name = LookupFilename;
     StringRef RealPathName = File->getFileEntry().tryGetRealPathName();
     SmallVector<StringRef, 16> Components(llvm::sys::path::begin(Name),
                                           llvm::sys::path::end(Name));
@@ -2158,7 +2172,10 @@ Preprocessor::ImportAction Preprocessor::HandleHeaderIncludeOrImport(
   if (IncludePos.isMacroID())
     IncludePos = SourceMgr.getExpansionRange(IncludePos).getEnd();
   FileID FID = SourceMgr.createFileID(*File, IncludePos, FileCharacter);
-  assert(FID.isValid() && "Expected valid file ID");
+  if (!FID.isValid()) {
+    TheModuleLoader.HadFatalFailure = true;
+    return ImportAction::Failure;
+  }
 
   // If all is good, enter the new file!
   if (EnterSourceFile(FID, CurDir, FilenameTok.getLocation()))
@@ -2720,7 +2737,9 @@ void Preprocessor::HandleDefineDirective(
                              /*Syntactic=*/LangOpts.MicrosoftExt))
       Diag(MI->getDefinitionLoc(), diag::warn_pp_macro_def_mismatch_with_pch)
           << MacroNameTok.getIdentifierInfo();
-    return;
+    // Issue the diagnostic but allow the change if msvc extensions are enabled
+    if (!LangOpts.MicrosoftExt)
+      return;
   }
 
   // Finally, if this identifier already had a macro defined for it, verify that

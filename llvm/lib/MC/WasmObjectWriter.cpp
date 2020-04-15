@@ -436,10 +436,6 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
   uint64_t FixupOffset = Layout.getFragmentOffset(Fragment) + Fixup.getOffset();
   MCContext &Ctx = Asm.getContext();
 
-  // The .init_array isn't translated as data, so don't do relocations in it.
-  if (FixupSection.getSectionName().startswith(".init_array"))
-    return;
-
   if (const MCSymbolRefExpr *RefB = Target.getSymB()) {
     // To get here the A - B expression must have failed evaluateAsRelocatable.
     // This means either A or B must be undefined and in WebAssembly we can't
@@ -455,6 +451,12 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
   // We either rejected the fixup or folded B into C at this point.
   const MCSymbolRefExpr *RefA = Target.getSymA();
   const auto *SymA = cast<MCSymbolWasm>(&RefA->getSymbol());
+
+  // The .init_array isn't translated as data, so don't do relocations in it.
+  if (FixupSection.getSectionName().startswith(".init_array")) {
+    SymA->setUsedInInitArray();
+    return;
+  }
 
   if (SymA->isVariable()) {
     const MCExpr *Expr = SymA->getVariableValue();
@@ -1084,16 +1086,13 @@ void WasmObjectWriter::registerEventType(const MCSymbolWasm &Symbol) {
 }
 
 static bool isInSymtab(const MCSymbolWasm &Sym) {
-  if (Sym.isUsedInReloc())
+  if (Sym.isUsedInReloc() || Sym.isUsedInInitArray())
     return true;
 
   if (Sym.isComdat() && !Sym.isDefined())
     return false;
 
-  if (Sym.isTemporary() && Sym.getName().empty())
-    return false;
-
-  if (Sym.isTemporary() && Sym.isData() && !Sym.getSize())
+  if (Sym.isTemporary())
     return false;
 
   if (Sym.isSection())
@@ -1324,6 +1323,14 @@ uint64_t WasmObjectWriter::writeObject(MCAssembler &Asm,
           Comdats[C->getName()].emplace_back(
               WasmComdatEntry{wasm::WASM_COMDAT_FUNCTION, Index});
         }
+
+        if (WS.hasExportName()) {
+          wasm::WasmExport Export;
+          Export.Name = WS.getExportName();
+          Export.Kind = wasm::WASM_EXTERNAL_FUNCTION;
+          Export.Index = Index;
+          Exports.push_back(Export);
+        }
       } else {
         // An import; the index was assigned above.
         Index = WasmIndices.find(&WS)->second;
@@ -1350,7 +1357,9 @@ uint64_t WasmObjectWriter::writeObject(MCAssembler &Asm,
         report_fatal_error(".size expression must be evaluatable");
 
       auto &DataSection = static_cast<MCSectionWasm &>(WS.getSection());
-      assert(DataSection.isWasmData());
+      if (!DataSection.isWasmData())
+        report_fatal_error("data symbols must live in a data section: " +
+                           WS.getName());
 
       // For each data symbol, export it in the symtab as a reference to the
       // corresponding Wasm data segment.
@@ -1450,8 +1459,10 @@ uint64_t WasmObjectWriter::writeObject(MCAssembler &Asm,
         Flags |= wasm::WASM_SYMBOL_EXPORTED;
       }
     }
-    if (WS.getName() != WS.getImportName())
+    if (WS.hasImportName())
       Flags |= wasm::WASM_SYMBOL_EXPLICIT_NAME;
+    if (WS.hasExportName())
+      Flags |= wasm::WASM_SYMBOL_EXPORTED;
 
     wasm::WasmSymbolInfo Info;
     Info.Name = WS.getName();
@@ -1553,7 +1564,7 @@ uint64_t WasmObjectWriter::writeObject(MCAssembler &Asm,
         report_fatal_error("fixups in .init_array should be symbol references");
       const auto &TargetSym = cast<const MCSymbolWasm>(SymRef->getSymbol());
       if (TargetSym.getIndex() == InvalidIndex)
-        report_fatal_error("symbols in .init_array should exist in symbtab");
+        report_fatal_error("symbols in .init_array should exist in symtab");
       if (!TargetSym.isFunction())
         report_fatal_error("symbols in .init_array should be for functions");
       InitFuncs.push_back(

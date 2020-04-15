@@ -314,7 +314,10 @@ public:
     return CS16 ? CS16->Name.Offset : CS32->Name.Offset;
   }
 
-  uint32_t getValue() const { return CS16 ? CS16->Value : CS32->Value; }
+  uint32_t getValue() const {
+    assert(isSet() && "COFFSymbolRef points to nothing!");
+    return CS16 ? CS16->Value : CS32->Value;
+  }
 
   int32_t getSectionNumber() const {
     assert(isSet() && "COFFSymbolRef points to nothing!");
@@ -909,6 +912,7 @@ protected:
   bool isSectionData(DataRefImpl Sec) const override;
   bool isSectionBSS(DataRefImpl Sec) const override;
   bool isSectionVirtual(DataRefImpl Sec) const override;
+  bool isDebugSection(StringRef SectionName) const override;
   relocation_iterator section_rel_begin(DataRefImpl Sec) const override;
   relocation_iterator section_rel_end(DataRefImpl Sec) const override;
 

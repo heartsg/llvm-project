@@ -46,72 +46,6 @@
 // SEC-NEXT:   EntrySize: 0
 // SEC-NEXT:   }
 
-.section       .text,"ax",@progbits,unique,1
-.global _start
-_start:
-  call lulz
-
-.section       .text,"ax",@progbits,unique,2
-.zero 4
-.global lulz
-lulz:
-  nop
-
-// CHECK: Disassembly of section .text:
-// CHECK-EMPTY:
-// CHECK-NEXT: _start:
-// CHECK-NEXT:   201310:  e8 04 00 00 00   callq 4
-// CHECK-NEXT:   201315:
-
-// CHECK:      lulz:
-// CHECK-NEXT:   201319:  90  nop
-
-
-.section       .text2,"ax",@progbits
-.global R_X86_64_32
-R_X86_64_32:
-  movl $R_X86_64_32, %edx
-
-// FIXME: this would be far more self evident if llvm-objdump printed
-// constants in hex.
-// CHECK: Disassembly of section .text2:
-// CHECK-EMPTY:
-// CHECK-NEXT: R_X86_64_32:
-// CHECK-NEXT:  20131a: {{.*}} movl $2102042, %edx
-
-.section .R_X86_64_32S,"ax",@progbits
-.global R_X86_64_32S
-R_X86_64_32S:
-  movq lulz - 0x100000, %rdx
-
-// CHECK: Disassembly of section .R_X86_64_32S:
-// CHECK-EMPTY:
-// CHECK-NEXT: R_X86_64_32S:
-// CHECK-NEXT:  {{.*}}: {{.*}} movq 1053465, %rdx
-
-.section .R_X86_64_PC32,"ax",@progbits
-.global R_X86_64_PC32
-R_X86_64_PC32:
- call bar
- movl $bar, %eax
-//16 is a size of PLT[0]
-// 0x201340 + 16 - (0x201327 + 5) = 36
-// CHECK:      Disassembly of section .R_X86_64_PC32:
-// CHECK-EMPTY:
-// CHECK-NEXT: R_X86_64_PC32:
-// CHECK-NEXT:  201327:   {{.*}}  callq  36
-// CHECK-NEXT:  20132c:   {{.*}}  movl $2102096, %eax
-
-.section .R_X86_64_32S_2,"ax",@progbits
-.global R_X86_64_32S_2
-R_X86_64_32S_2:
-  mov bar2, %eax
-// plt is  at 0x201340. The second plt entry is at 0x201360 == 2102112
-// CHECK:      Disassembly of section .R_X86_64_32S_2:
-// CHECK-EMPTY:
-// CHECK-NEXT: R_X86_64_32S_2:
-// CHECK-NEXT: 201331: {{.*}}  movl    2102112, %eax
-
 .section .R_X86_64_64,"a",@progbits
 .global R_X86_64_64
 R_X86_64_64:
@@ -144,3 +78,69 @@ R_X86_64_GOT32:
 .global R_X86_64_GOT64
 R_X86_64_GOT64:
         .quad zed@got
+
+.section       .text,"ax",@progbits,unique,1
+.global _start
+_start:
+  call lulz
+
+.section       .text,"ax",@progbits,unique,2
+.zero 4
+.global lulz
+lulz:
+  nop
+
+// CHECK: Disassembly of section .text:
+// CHECK-EMPTY:
+// CHECK-NEXT: <_start>:
+// CHECK-NEXT:   201310:  e8 04 00 00 00   callq 0x201319
+// CHECK-NEXT:   201315:
+
+// CHECK:      <lulz>:
+// CHECK-NEXT:   201319:  90  nop
+
+
+.section       .text2,"ax",@progbits
+.global R_X86_64_32
+R_X86_64_32:
+  movl $R_X86_64_32, %edx
+
+// FIXME: this would be far more self evident if llvm-objdump printed
+// constants in hex.
+// CHECK: Disassembly of section .text2:
+// CHECK-EMPTY:
+// CHECK-NEXT: <R_X86_64_32>:
+// CHECK-NEXT:  20131a: {{.*}} movl $2102042, %edx
+
+.section .R_X86_64_32S,"ax",@progbits
+.global R_X86_64_32S
+R_X86_64_32S:
+  movq lulz - 0x100000, %rdx
+
+// CHECK: Disassembly of section .R_X86_64_32S:
+// CHECK-EMPTY:
+// CHECK-NEXT: <R_X86_64_32S>:
+// CHECK-NEXT:  {{.*}}: {{.*}} movq 1053465, %rdx
+
+.section .R_X86_64_PC32,"ax",@progbits
+.global R_X86_64_PC32
+R_X86_64_PC32:
+ call bar
+ movl $bar, %eax
+//16 is a size of PLT[0]
+// 0x201340 + 16 - (0x201327 + 5) = 36
+// CHECK:      Disassembly of section .R_X86_64_PC32:
+// CHECK-EMPTY:
+// CHECK-NEXT: <R_X86_64_PC32>:
+// CHECK-NEXT:  201327:   {{.*}}  callq  0x201350
+// CHECK-NEXT:  20132c:   {{.*}}  movl $2102096, %eax
+
+.section .R_X86_64_32S_2,"ax",@progbits
+.global R_X86_64_32S_2
+R_X86_64_32S_2:
+  mov bar2, %eax
+// plt is  at 0x201340. The second plt entry is at 0x201360 == 2102112
+// CHECK:      Disassembly of section .R_X86_64_32S_2:
+// CHECK-EMPTY:
+// CHECK-NEXT: <R_X86_64_32S_2>:
+// CHECK-NEXT: 201331: {{.*}}  movl    2102112, %eax

@@ -1,4 +1,4 @@
-//===-- DumpDataExtractor.cpp -----------------------------------*- C++ -*-===//
+//===-- DumpDataExtractor.cpp ---------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -21,9 +21,6 @@
 #include "lldb/Utility/DataExtractor.h"
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/Stream.h"
-
-#include "clang/AST/ASTContext.h"
-#include "clang/AST/CanonicalType.h"
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
@@ -470,9 +467,10 @@ lldb::offset_t lldb_private::DumpDataExtractor(
     } break;
 
     case eFormatPointer:
-      s->Address(DE.GetMaxU64Bitfield(&offset, item_byte_size, item_bit_size,
-                                      item_bit_offset),
-                 sizeof(addr_t));
+      DumpAddress(s->AsRawOstream(),
+                  DE.GetMaxU64Bitfield(&offset, item_byte_size, item_bit_size,
+                                       item_bit_offset),
+                  sizeof(addr_t));
       break;
 
     case eFormatComplexInteger: {
