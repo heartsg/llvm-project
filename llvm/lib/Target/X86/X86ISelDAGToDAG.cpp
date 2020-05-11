@@ -17,8 +17,6 @@
 #include "X86Subtarget.h"
 #include "X86TargetMachine.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/CodeGen/MachineFrameInfo.h"
-#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/ConstantRange.h"
@@ -31,9 +29,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetOptions.h"
 #include <stdint.h>
 using namespace llvm;
 
@@ -302,8 +297,8 @@ namespace {
                                               MVT::i32, AM.Disp,
                                               AM.SymbolFlags);
       else if (AM.CP)
-        Disp = CurDAG->getTargetConstantPool(AM.CP, MVT::i32,
-                                             AM.Align, AM.Disp, AM.SymbolFlags);
+        Disp = CurDAG->getTargetConstantPool(AM.CP, MVT::i32, Align(AM.Align),
+                                             AM.Disp, AM.SymbolFlags);
       else if (AM.ES) {
         assert(!AM.Disp && "Non-zero displacement is ignored with ES.");
         Disp = CurDAG->getTargetExternalSymbol(AM.ES, MVT::i32, AM.SymbolFlags);
@@ -862,6 +857,57 @@ void X86DAGToDAGISel::PreprocessISelDAG() {
     }
 
     switch (N->getOpcode()) {
+    case X86ISD::VBROADCAST: {
+      MVT VT = N->getSimpleValueType(0);
+      // Emulate v32i16/v64i8 broadcast without BWI.
+      if (!Subtarget->hasBWI() && (VT == MVT::v32i16 || VT == MVT::v64i8)) {
+        MVT NarrowVT = VT == MVT::v32i16 ? MVT::v16i16 : MVT::v32i8;
+        SDLoc dl(N);
+        SDValue NarrowBCast =
+            CurDAG->getNode(X86ISD::VBROADCAST, dl, NarrowVT, N->getOperand(0));
+        SDValue Res =
+            CurDAG->getNode(ISD::INSERT_SUBVECTOR, dl, VT, CurDAG->getUNDEF(VT),
+                            NarrowBCast, CurDAG->getIntPtrConstant(0, dl));
+        unsigned Index = VT == MVT::v32i16 ? 16 : 32;
+        Res = CurDAG->getNode(ISD::INSERT_SUBVECTOR, dl, VT, Res, NarrowBCast,
+                              CurDAG->getIntPtrConstant(Index, dl));
+
+        --I;
+        CurDAG->ReplaceAllUsesWith(N, Res.getNode());
+        ++I;
+        CurDAG->DeleteNode(N);
+      }
+
+      break;
+    }
+    case X86ISD::VBROADCAST_LOAD: {
+      MVT VT = N->getSimpleValueType(0);
+      // Emulate v32i16/v64i8 broadcast without BWI.
+      if (!Subtarget->hasBWI() && (VT == MVT::v32i16 || VT == MVT::v64i8)) {
+        MVT NarrowVT = VT == MVT::v32i16 ? MVT::v16i16 : MVT::v32i8;
+        auto *MemNode = cast<MemSDNode>(N);
+        SDLoc dl(N);
+        SDVTList VTs = CurDAG->getVTList(NarrowVT, MVT::Other);
+        SDValue Ops[] = {MemNode->getChain(), MemNode->getBasePtr()};
+        SDValue NarrowBCast = CurDAG->getMemIntrinsicNode(
+            X86ISD::VBROADCAST_LOAD, dl, VTs, Ops, MemNode->getMemoryVT(),
+            MemNode->getMemOperand());
+        SDValue Res =
+            CurDAG->getNode(ISD::INSERT_SUBVECTOR, dl, VT, CurDAG->getUNDEF(VT),
+                            NarrowBCast, CurDAG->getIntPtrConstant(0, dl));
+        unsigned Index = VT == MVT::v32i16 ? 16 : 32;
+        Res = CurDAG->getNode(ISD::INSERT_SUBVECTOR, dl, VT, Res, NarrowBCast,
+                              CurDAG->getIntPtrConstant(Index, dl));
+
+        --I;
+        SDValue To[] = {Res, NarrowBCast.getValue(1)};
+        CurDAG->ReplaceAllUsesWith(N, To);
+        ++I;
+        CurDAG->DeleteNode(N);
+      }
+
+      break;
+    }
     case ISD::VSELECT: {
       // Replace VSELECT with non-mask conditions with with BLENDV.
       if (N->getOperand(0).getValueType().getVectorElementType() == MVT::i1)
@@ -1579,7 +1625,7 @@ bool X86DAGToDAGISel::matchWrapper(SDValue N, X86ISelAddressMode &AM) {
     Offset = G->getOffset();
   } else if (ConstantPoolSDNode *CP = dyn_cast<ConstantPoolSDNode>(N0)) {
     AM.CP = CP->getConstVal();
-    AM.Align = CP->getAlignment();
+    AM.Align = CP->getAlign().value();
     AM.SymbolFlags = CP->getTargetFlags();
     Offset = CP->getOffset();
   } else if (ExternalSymbolSDNode *S = dyn_cast<ExternalSymbolSDNode>(N0)) {

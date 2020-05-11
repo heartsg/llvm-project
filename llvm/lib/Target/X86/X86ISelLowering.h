@@ -14,8 +14,6 @@
 #ifndef LLVM_LIB_TARGET_X86_X86ISELLOWERING_H
 #define LLVM_LIB_TARGET_X86_X86ISELLOWERING_H
 
-#include "llvm/CodeGen/CallingConvLower.h"
-#include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLowering.h"
 
 namespace llvm {
@@ -348,6 +346,9 @@ namespace llvm {
 
       // Zero High Bits Starting with Specified Bit Position.
       BZHI,
+
+      // Parallel extract and deposit.
+      PDEP, PEXT,
 
       // X86-specific multiply by immediate.
       MUL_IMM,
@@ -813,16 +814,12 @@ namespace llvm {
     /// and some i16 instructions are slow.
     bool IsDesirableToPromoteOp(SDValue Op, EVT &PVT) const override;
 
-    /// Returns whether computing the negated form of the specified expression
-    /// is more expensive, the same cost or cheaper.
-    NegatibleCost getNegatibleCost(SDValue Op, SelectionDAG &DAG,
-                                   bool LegalOperations, bool ForCodeSize,
-                                   unsigned Depth) const override;
-
-    /// If getNegatibleCost returns Neutral/Cheaper, return the newly negated
-    /// expression.
+    /// Return the newly negated expression if the cost is not expensive and
+    /// set the cost in \p Cost to indicate that if it is cheaper or neutral to
+    /// do the negation.
     SDValue getNegatedExpression(SDValue Op, SelectionDAG &DAG,
                                  bool LegalOperations, bool ForCodeSize,
+                                 NegatibleCost &Cost,
                                  unsigned Depth) const override;
 
     MachineBasicBlock *

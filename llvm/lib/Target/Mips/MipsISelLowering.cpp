@@ -173,7 +173,7 @@ SDValue MipsTargetLowering::getTargetNode(JumpTableSDNode *N, EVT Ty,
 SDValue MipsTargetLowering::getTargetNode(ConstantPoolSDNode *N, EVT Ty,
                                           SelectionDAG &DAG,
                                           unsigned Flag) const {
-  return DAG.getTargetConstantPool(N->getConstVal(), Ty, N->getAlignment(),
+  return DAG.getTargetConstantPool(N->getConstVal(), Ty, N->getAlign(),
                                    N->getOffset(), Flag);
 }
 
@@ -3948,7 +3948,7 @@ MipsTargetLowering::getSingleConstraintMatchWeight(
     break;
   case 'f': // FPU or MSA register
     if (Subtarget.hasMSA() && type->isVectorTy() &&
-        cast<VectorType>(type)->getBitWidth() == 128)
+        type->getPrimitiveSizeInBits().getFixedSize() == 128)
       weight = CW_Register;
     else if (type->isFloatTy())
       weight = CW_Register;

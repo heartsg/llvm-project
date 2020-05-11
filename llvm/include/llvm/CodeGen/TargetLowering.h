@@ -37,7 +37,6 @@
 #include "llvm/CodeGen/TargetCallingConv.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/Attributes.h"
-#include "llvm/IR/CallSite.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -287,10 +286,6 @@ public:
           IsSwiftSelf(false), IsSwiftError(false), IsCFGuardTarget(false) {}
 
     void setAttributes(const CallBase *Call, unsigned ArgIdx);
-
-    void setAttributes(ImmutableCallSite *CS, unsigned ArgIdx) {
-      return setAttributes(cast<CallBase>(CS->getInstruction()), ArgIdx);
-    }
   };
   using ArgListTy = std::vector<ArgListEntry>;
 
@@ -3540,17 +3535,34 @@ public:
     llvm_unreachable("Not Implemented");
   }
 
-  /// Returns whether computing the negated form of the specified expression is
-  /// more expensive, the same cost or cheaper.
-  virtual NegatibleCost getNegatibleCost(SDValue Op, SelectionDAG &DAG,
-                                         bool LegalOperations, bool ForCodeSize,
-                                         unsigned Depth = 0) const;
-
-  /// If getNegatibleCost returns Neutral/Cheaper, return the newly negated
-  /// expression.
+  /// Return the newly negated expression if the cost is not expensive and
+  /// set the cost in \p Cost to indicate that if it is cheaper or neutral to
+  /// do the negation.
   virtual SDValue getNegatedExpression(SDValue Op, SelectionDAG &DAG,
-                                       bool LegalOperations, bool ForCodeSize,
+                                       bool LegalOps, bool OptForSize,
+                                       NegatibleCost &Cost,
                                        unsigned Depth = 0) const;
+
+  /// This is the helper function to return the newly negated expression only
+  /// when the cost is cheaper.
+  SDValue getCheaperNegatedExpression(SDValue Op, SelectionDAG &DAG,
+                                      bool LegalOps, bool OptForSize,
+                                      unsigned Depth = 0) const {
+    NegatibleCost Cost = NegatibleCost::Expensive;
+    SDValue Neg =
+        getNegatedExpression(Op, DAG, LegalOps, OptForSize, Cost, Depth);
+    if (Neg && Cost == NegatibleCost::Cheaper)
+      return Neg;
+    return SDValue();
+  }
+
+  /// This is the helper function to return the newly negated expression if
+  /// the cost is not expensive.
+  SDValue getNegatedExpression(SDValue Op, SelectionDAG &DAG, bool LegalOps,
+                               bool OptForSize, unsigned Depth = 0) const {
+    NegatibleCost Cost = NegatibleCost::Expensive;
+    return getNegatedExpression(Op, DAG, LegalOps, OptForSize, Cost, Depth);
+  }
 
   //===--------------------------------------------------------------------===//
   // Lowering methods - These methods must be implemented by targets so that

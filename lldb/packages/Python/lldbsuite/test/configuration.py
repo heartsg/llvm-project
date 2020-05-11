@@ -137,6 +137,9 @@ all_tests = set()
 # LLDB library directory.
 lldb_libs_dir = None
 
+# A plugin whose tests will be enabled, like intel-pt.
+enabled_plugins = []
+
 
 def shouldSkipBecauseOfCategories(test_categories):
     if use_categories:
@@ -157,3 +160,9 @@ def get_filecheck_path():
     """
     if filecheck and os.path.lexists(filecheck):
         return filecheck
+
+def is_reproducer_replay():
+    """
+    Returns true when test is replayed from a reproducer.
+    """
+    return replay_path is not None
